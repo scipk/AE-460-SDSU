@@ -14,7 +14,16 @@ muEarth   = 3.986004418e14;
 muVenus   = 3.2485859e14;
 muJupiter = 1.26686534e17;
 
-%% Planetary Data
+%% Planetary Orbital Data
+r_earth_orbit   = 1.000 * AU_to_m;      % Earth orbital radius [m]
+r_venus_orbit   = 0.723 * AU_to_m;      % Venus orbital radius [m]
+r_jupiter_orbit = 5.203 * AU_to_m;      % Jupiter orbital radius [m]
+
+v_earth_orbit   = sqrt(muSun/r_earth_orbit);    % Earth orbital velocity [m/s]
+v_venus_orbit   = sqrt(muSun/r_venus_orbit);    % Venus orbital velocity [m/s]
+v_jupiter_orbit = sqrt(muSun/r_jupiter_orbit);  % Jupiter orbital velocity [m/s]
+
+%% Planetary Physical Data
 R_earth   = 6378e3;         % Earth radius [m]
 R_venus   = 6052e3;         % Venus radius [m]
 R_jupiter = 71492e3;        % Jupiter radius [m]
@@ -41,7 +50,7 @@ f = @(vinf) tof_from_vinf(vinf) - T;
 vinf_required = fzero(f, rf/T);         % Required heliocentric v_inf [m/s]
 
 v_escape_at_rp = sqrt(2*muSun/rp);      % (Brown, Eq. 3.15)
-v_perihelion_required = sqrt(vinf_required^2 + v_escape_at_rp^2);
+v_perihelion_required = sqrt(vinf_required^2 + v_escape_at_rp^2);   % (Brown, Eq. 3.57)
 
 fprintf('========================================\n');
 fprintf('MISSION REQUIREMENTS\n');
@@ -56,22 +65,22 @@ fprintf('========================================\n');
 fprintf('PATCHED CONIC 1: GEO TO EARTH ESCAPE\n');
 fprintf('========================================\n');
 
-% We'll determine the required v_inf based on the trajectory
-% For E-V-E-J sequence, we need approximately 10 km/s v_inf from Earth
-v_inf_earth_escape = 10e3;              % Desired v_inf at Earth escape [m/s]
+% Initial assumption: we want ~10 km/s heliocentric v_inf after Earth escape
+% This will be refined based on trajectory optimization
+v_inf_earth_departure = 10e3;           % Heliocentric v_inf leaving Earth [m/s]
 
 % Circular velocity at GEO
-v_circular_GEO = sqrt(muEarth/r_GEO); % (Brown, Eq. 3.6)
+v_circular_GEO = sqrt(muEarth/r_GEO);   % (Brown, Eq. 3.6)
 
 % Velocity needed at GEO for hyperbolic escape with v_inf
-v_escape_GEO = sqrt(v_inf_earth_escape^2 + 2*muEarth/r_GEO);    % (Brown, Eq. 3.15)
+v_escape_GEO = sqrt(v_inf_earth_departure^2 + 2*muEarth/r_GEO);    % (Brown, Eq. 3.15)
 
 % Delta-V from GEO
 dv_GEO = v_escape_GEO - v_circular_GEO;
 
 fprintf('GEO altitude: %.0f km\n', (r_GEO - R_earth)/1e3);
 fprintf('v_circular at GEO: %.2f km/s\n', v_circular_GEO/1e3);
-fprintf('Desired v_inf from Earth: %.2f km/s\n', v_inf_earth_escape/1e3);
+fprintf('Desired heliocentric v_inf: %.2f km/s\n', v_inf_earth_departure/1e3);
 fprintf('v needed at GEO: %.2f km/s\n', v_escape_GEO/1e3);
 fprintf('Delta-V (from GEO): %.2f km/s\n\n', dv_GEO/1e3);
 
@@ -80,55 +89,70 @@ fprintf('========================================\n');
 fprintf('PATCHED CONIC 2: VENUS FLYBY\n');
 fprintf('========================================\n');
 
-v_inf_venus_in = 5.5e3;                 % Arrival v_inf at Venus [m/s]
+% Approximate v_inf at Venus arrival
+% This depends on the transfer orbit from Earth to Venus
+v_inf_venus_arrival = 5.5e3;            % Approximate [m/s]
+
 h_venus = 300e3;                        % Flyby altitude [m]
 r_venus_periapsis = R_venus + h_venus;
 
-% Unpowered gravity assist - magnitude preserved
-v_inf_venus_out_helio = 9e3;            % Heliocentric v_inf after Venus [m/s]
+% Unpowered gravity assist
+% Calculate maximum deflection angle
+delta_max_venus = 2 * asin(1/(1 + r_venus_periapsis*v_inf_venus_arrival^2/muVenus));
 
-fprintf('v_inf in (Venus-relative): %.2f km/s\n', v_inf_venus_in/1e3);
+% After optimal deflection, heliocentric v_inf increases
+v_inf_venus_departure = 9e3;            % Heliocentric v_inf after Venus [m/s]
+
+fprintf('v_inf in (Venus-relative): %.2f km/s\n', v_inf_venus_arrival/1e3);
 fprintf('Periapsis altitude: %.0f km\n', h_venus/1e3);
+fprintf('Max deflection angle: %.1f deg\n', rad2deg(delta_max_venus));
 fprintf('Delta-V (unpowered GA): 0.00 km/s\n');
-fprintf('v_inf out (heliocentric): %.2f km/s\n\n', v_inf_venus_out_helio/1e3);
+fprintf('v_inf out (heliocentric): %.2f km/s\n\n', v_inf_venus_departure/1e3);
 
 %% Patched Conic 3: Earth Flyby
 fprintf('========================================\n');
 fprintf('PATCHED CONIC 3: EARTH FLYBY\n');
 fprintf('========================================\n');
 
-v_inf_earth_in = 6e3;                   % Arrival v_inf at Earth [m/s]
+v_inf_earth_arrival = 6e3;              % Arrival v_inf at Earth [m/s]
 h_earth = 300e3;                        % Flyby altitude [m]
 r_earth_periapsis = R_earth + h_earth;
 
-% Unpowered gravity assist
-v_inf_earth_out_helio = 14e3;           % Heliocentric v_inf after Earth [m/s]
+% Calculate maximum deflection angle
+delta_max_earth = 2 * asin(1/(1 + r_earth_periapsis*v_inf_earth_arrival^2/muEarth));
 
-fprintf('v_inf in (Earth-relative): %.2f km/s\n', v_inf_earth_in/1e3);
+% Unpowered gravity assist
+v_inf_earth_departure_2 = 14e3;         % Heliocentric v_inf after Earth [m/s]
+
+fprintf('v_inf in (Earth-relative): %.2f km/s\n', v_inf_earth_arrival/1e3);
 fprintf('Periapsis altitude: %.0f km\n', h_earth/1e3);
+fprintf('Max deflection angle: %.1f deg\n', rad2deg(delta_max_earth));
 fprintf('Delta-V (unpowered GA): 0.00 km/s\n');
-fprintf('v_inf out (heliocentric): %.2f km/s\n\n', v_inf_earth_out_helio/1e3);
+fprintf('v_inf out (heliocentric): %.2f km/s\n\n', v_inf_earth_departure_2/1e3);
 
 %% Patched Conic 4: Jupiter Powered Flyby
 fprintf('========================================\n');
 fprintf('PATCHED CONIC 4: JUPITER POWERED FLYBY\n');
 fprintf('========================================\n');
 
-v_inf_jupiter_in = 10e3;                % Arrival v_inf at Jupiter [m/s]
+% v_inf at Jupiter arrival from Earth-Jupiter transfer
+v_inf_jupiter_arrival = 10e3;           % Jupiter-relative v_inf [m/s]
+
 r_jupiter_periapsis = 3 * R_jupiter;    % Periapsis at 3 R_J [m]
 dv_jupiter = 2e3;                       % Powered burn [m/s]
 
 % Velocity at periapsis before burn
-v_p_jupiter_before = sqrt(v_inf_jupiter_in^2 + 2*muJupiter/r_jupiter_periapsis);    % (Hale, Eq. 5-4-1)
+v_p_jupiter_before = sqrt(v_inf_jupiter_arrival^2 + 2*muJupiter/r_jupiter_periapsis);    % (Hale, Eq. 5-4-1)
 
 % Powered gravity assist formula (Oberth effect)
-v_inf_jupiter_out = sqrt(v_inf_jupiter_in^2 + 2*v_p_jupiter_before*dv_jupiter + dv_jupiter^2);
+v_inf_jupiter_departure = sqrt(v_inf_jupiter_arrival^2 + ...
+    2*v_p_jupiter_before*dv_jupiter + dv_jupiter^2);
 
-fprintf('v_inf in (Jupiter-relative): %.2f km/s\n', v_inf_jupiter_in/1e3);
+fprintf('v_inf in (Jupiter-relative): %.2f km/s\n', v_inf_jupiter_arrival/1e3);
 fprintf('Periapsis: %.1f R_J (%.0f km)\n', r_jupiter_periapsis/R_jupiter, r_jupiter_periapsis/1e3);
 fprintf('v at periapsis (before): %.2f km/s\n', v_p_jupiter_before/1e3);
 fprintf('Delta-V (at periapsis): %.2f km/s\n', dv_jupiter/1e3);
-fprintf('v_inf out (heliocentric): %.2f km/s\n\n', v_inf_jupiter_out/1e3);
+fprintf('v_inf out (heliocentric): %.2f km/s\n\n', v_inf_jupiter_departure/1e3);
 
 %% Patched Conic 5: Solar Oberth Maneuver
 fprintf('========================================\n');
@@ -136,12 +160,12 @@ fprintf('PATCHED CONIC 5: SOLAR OBERTH\n');
 fprintf('========================================\n');
 
 % Velocity at perihelion before burn
-v_perihelion_before = sqrt(v_inf_jupiter_out^2 + v_escape_at_rp^2); % (Brown, Eq. 3.57)
+v_perihelion_before = sqrt(v_inf_jupiter_departure^2 + v_escape_at_rp^2); % (Brown, Eq. 3.57)
 
 % Required delta-v at solar perihelion
 dv_solar_oberth = v_perihelion_required - v_perihelion_before;
 
-fprintf('v_inf from Jupiter: %.2f km/s\n', v_inf_jupiter_out/1e3);
+fprintf('v_inf from Jupiter: %.2f km/s\n', v_inf_jupiter_departure/1e3);
 fprintf('v_escape at %.3f AU: %.2f km/s\n', rp_AU, v_escape_at_rp/1e3);
 fprintf('v at perihelion (before): %.2f km/s\n', v_perihelion_before/1e3);
 fprintf('v at perihelion (required): %.2f km/s\n', v_perihelion_required/1e3);
