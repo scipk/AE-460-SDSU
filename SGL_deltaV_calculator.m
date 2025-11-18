@@ -30,7 +30,7 @@ R_jupiter = 71492e3;        % Jupiter radius [m]
 r_GEO     = 42164e3;        % GEO radius [m]
 
 %% Mission Inputs
-rp_AU   = 0.046;                        % Solar perihelion [AU]
+rp_AU   = 0.14;                        % Solar perihelion [AU]
 rf_AU   = 650;                          % Target distance [AU]
 T_yr    = 25;                           % Cruise time [years]
 
@@ -65,22 +65,22 @@ fprintf('========================================\n');
 fprintf('PATCHED CONIC 1: GEO TO EARTH ESCAPE\n');
 fprintf('========================================\n');
 
-% Initial assumption: we want ~10 km/s heliocentric v_inf after Earth escape
+% Initial assumption: we want ~10 km/s geocentric v_HE after Earth escape
 % This will be refined based on trajectory optimization
-v_inf_earth_departure = 10e3;           % Heliocentric v_inf leaving Earth [m/s]
+v_HE_earth_departure = 10e3;           % geocentric v_HE leaving Earth [m/s]
 
 % Circular velocity at GEO
 v_circular_GEO = sqrt(muEarth/r_GEO);   % (Brown, Eq. 3.6)
 
 % Velocity needed at GEO for hyperbolic escape with v_inf
-v_escape_GEO = sqrt(v_inf_earth_departure^2 + 2*muEarth/r_GEO);    % (Brown, Eq. 3.15)
+v_escape_GEO = sqrt(v_HE_earth_departure^2 + 2*muEarth/r_GEO);    % (Brown, Eq. 3.15)
 
 % Delta-V from GEO
 dv_GEO = v_escape_GEO - v_circular_GEO;
 
 fprintf('GEO altitude: %.0f km\n', (r_GEO - R_earth)/1e3);
 fprintf('v_circular at GEO: %.2f km/s\n', v_circular_GEO/1e3);
-fprintf('Desired heliocentric v_inf: %.2f km/s\n', v_inf_earth_departure/1e3);
+fprintf('Desired geocentric v_inf, aka v_HE: %.2f km/s\n', v_HE_earth_departure/1e3);
 fprintf('v needed at GEO: %.2f km/s\n', v_escape_GEO/1e3);
 fprintf('Delta-V (from GEO): %.2f km/s\n\n', dv_GEO/1e3);
 
@@ -103,7 +103,7 @@ delta_max_venus = 2 * asin(1/(1 + r_venus_periapsis*v_inf_venus_arrival^2/muVenu
 % After optimal deflection, heliocentric v_inf increases
 v_inf_venus_departure = 9e3;            % Heliocentric v_inf after Venus [m/s]
 
-fprintf('v_inf in (Venus-relative): %.2f km/s\n', v_inf_venus_arrival/1e3);
+fprintf('v_inf going in (Venus-relative): %.2f km/s\n', v_inf_venus_arrival/1e3);
 fprintf('Periapsis altitude: %.0f km\n', h_venus/1e3);
 fprintf('Max deflection angle: %.1f deg\n', rad2deg(delta_max_venus));
 fprintf('Delta-V (unpowered GA): 0.00 km/s\n');
@@ -124,7 +124,7 @@ delta_max_earth = 2 * asin(1/(1 + r_earth_periapsis*v_inf_earth_arrival^2/muEart
 % Unpowered gravity assist
 v_inf_earth_departure_2 = 14e3;         % Heliocentric v_inf after Earth [m/s]
 
-fprintf('v_inf in (Earth-relative): %.2f km/s\n', v_inf_earth_arrival/1e3);
+fprintf('v_inf going in (Earth-relative): %.2f km/s\n', v_inf_earth_arrival/1e3);
 fprintf('Periapsis altitude: %.0f km\n', h_earth/1e3);
 fprintf('Max deflection angle: %.1f deg\n', rad2deg(delta_max_earth));
 fprintf('Delta-V (unpowered GA): 0.00 km/s\n');
@@ -185,3 +185,86 @@ fprintf('Jupiter flyby:      %.2f km/s\n', dv_jupiter/1e3);
 fprintf('Solar Oberth:       %.2f km/s\n', dv_solar_oberth/1e3);
 fprintf('                    ----------------\n');
 fprintf('TOTAL:              %.2f km/s\n\n', total_dv/1e3);
+
+%% ========================================
+%  FIGURE Delta-V Budget Bar Chart
+%  Uses dv_GEO, dv_jupiter, dv_solar_oberth from main script
+%  (all in [m/s])
+%  =========================================
+
+dv_labels = categorical({'GEO escape','Jupiter powered GA','Solar Oberth'});
+dv_labels = reordercats(dv_labels, ...
+    {'GEO escape','Jupiter powered GA','Solar Oberth'});
+
+% Convert from m/s to km/s
+dv_vals_kms = [dv_GEO, dv_jupiter, dv_solar_oberth] / 1e3;
+
+figure;
+bar(dv_labels, dv_vals_kms);
+ylabel('\DeltaV [km/s]');
+title(sprintf('Solar Gravity Lens Mission \\DeltaV Budget (r_p = %.3f AU)', rp_AU));
+grid on;
+
+%% ========================================
+%  FIGURE Delta-V vs Perihelion Radius
+%  r_p from 0.04 AU to 0.50 AU in steps of 0.01 AU
+%  =========================================
+
+% --- Jupiter powered flyby assumptions ---
+v_inf_jup_arrival = 10e3;          % [m/s]
+r_jup_periapsis   = 3 * R_jupiter; % [m]
+
+% Velocity at Jupiter periapsis before burn
+v_p_jup_before = sqrt(v_inf_jup_arrival^2 + 2*muJupiter/r_jup_periapsis);
+
+% v_infinity leaving Jupiter (heliocentric), assumed independent of r_p
+v_inf_jup_departure = sqrt(v_inf_jup_arrival^2 + ...
+                           2*v_p_jup_before*dv_jupiter + dv_jupiter^2);
+
+% Earth-departure Delta-V (constant term in total Delta-V)
+dv_GEO_kms = dv_GEO/1e3;   % [km/s] from patch 1
+dv_J_kms   = dv_jupiter/1e3;
+
+% --- Sweep over perihelion radii ---
+rp_vals_AU   = 0.04:0.01:0.50;   % [AU]
+n            = numel(rp_vals_AU);
+dv_sun_kms   = zeros(1,n);
+dv_total_kms = zeros(1,n);
+
+for i = 1:n
+    rp_AU_i = rp_vals_AU(i);
+    rp_i    = rp_AU_i * AU_to_m;   % [m]
+    
+    % Hyperbolic orbit parameters as functions of v_inf (for this rp_i)
+    a_from_vinf = @(vinf) -muSun./(vinf.^2);                     % hyperbolic a
+    e_from_vinf = @(vinf) 1 + rp_i./(-a_from_vinf(vinf));        % eccentricity
+    F_from_vinf = @(vinf) acosh( (rf./(-a_from_vinf(vinf)) + 1) ./ ...
+                                 e_from_vinf(vinf) );            % hyperbolic anomaly
+    
+    tof_from_vinf = @(vinf) sqrt((-a_from_vinf(vinf)).^3/muSun) .* ...
+        ( e_from_vinf(vinf).*sinh(F_from_vinf(vinf)) - F_from_vinf(vinf) );
+    
+    % Solve for v_inf that yields the desired time of flight T
+    f_vinf = @(vinf) tof_from_vinf(vinf) - T;
+    % Initial guess ~ average radial speed (works well for this problem)
+    vinf_required_i = fzero(f_vinf, rf/T);   % [m/s]
+    
+    % Speeds at perihelion
+    v_escape_rp_i  = sqrt(2*muSun/rp_i);                         % escape at rp
+    v_p_required_i = sqrt(vinf_required_i^2 + v_escape_rp_i^2);  % needed at rp
+    v_p_before_i   = sqrt(v_inf_jup_departure^2 + v_escape_rp_i^2);
+    
+    dv_sun_i = v_p_required_i - v_p_before_i;   % [m/s]
+    
+    dv_sun_kms(i)   = dv_sun_i/1e3;
+    dv_total_kms(i) = dv_GEO_kms + dv_J_kms + dv_sun_kms(i);
+end
+
+figure;
+plot(rp_vals_AU, dv_total_kms, '-o'); hold on;
+plot(rp_vals_AU, dv_sun_kms, '--o');
+xlabel('Perihelion distance r_p [AU]');
+ylabel('\DeltaV [km/s]');
+legend('Total mission \DeltaV','Solar Oberth \DeltaV','Location','northwest');
+title(sprintf('\\DeltaV vs. perihelion radius (650 AU in %d yr)', T_yr));
+grid on;
